@@ -1,0 +1,390 @@
+{
+  "project": "CLIProxyAPI",
+  "branchName": "refactor/unified-routing",
+  "description": "Unify model routing logic with Router as single source of truth using TDD approach",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Create test harness with fake proxy and handler recorders",
+      "description": "Set up httptest + gin.Engine test environment with mock components for characterization tests",
+      "acceptanceCriteria": [
+        "File `internal/routing/testutil/fake_proxy.go` exists with FakeProxyRecorder type",
+        "FakeProxyRecorder records: called bool, request body, request headers",
+        "File `internal/routing/testutil/fake_handler.go` exists with FakeHandlerRecorder type",
+        "FakeHandlerRecorder records: called bool, body, headers, context keys",
+        "Run `go build ./internal/routing/testutil/...` - exits with code 0"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-002",
+      "title": "Write LOCAL_PROVIDER path characterization test",
+      "description": "Test that requests with available local provider do not call proxy and call local handler",
+      "acceptanceCriteria": [
+        "File `internal/api/modules/amp/fallback_handlers_characterization_test.go` exists",
+        "Test `TestCharacterization_LocalProvider` passes",
+        "Test asserts: proxy NOT called",
+        "Test asserts: local handler called once",
+        "Test asserts: request body model unchanged",
+        "Run `go test ./internal/api/modules/amp/... -run TestCharacterization_LocalProvider` - exits with code 0"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-003",
+      "title": "Write MODEL_MAPPING path characterization test",
+      "description": "Test that requests without local provider but with mapping use mapped model",
+      "acceptanceCriteria": [
+        "Test `TestCharacterization_ModelMapping` passes",
+        "Test asserts: proxy NOT called",
+        "Test asserts: local handler called with rewritten model in body",
+        "Test asserts: context has `mapped_model` key set",
+        "Test asserts: response body model rewritten back to original",
+        "Run `go test ./internal/api/modules/amp/... -run TestCharacterization_ModelMapping` - exits with code 0"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-004",
+      "title": "Write AMP_CREDITS proxy fallback characterization test",
+      "description": "Test that requests without local provider and no mapping fall back to proxy",
+      "acceptanceCriteria": [
+        "Test `TestCharacterization_AmpCreditsProxy` passes",
+        "Test asserts: proxy called once",
+        "Test asserts: local handler NOT called",
+        "Test asserts: body forwarded to proxy is original (no rewrite)",
+        "Run `go test ./internal/api/modules/amp/... -run TestCharacterization_AmpCreditsProxy` - exits with code 0"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-005",
+      "title": "Write body read/restore characterization test",
+      "description": "Test that handler can read body even after wrapper reads it",
+      "acceptanceCriteria": [
+        "Test `TestCharacterization_BodyRestore` passes",
+        "Test asserts: handler receives complete original body",
+        "Run `go test ./internal/api/modules/amp/... -run TestCharacterization_BodyRestore` - exits with code 0"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-006",
+      "title": "Write Gemini v1beta1 mixed route gating test - POST with models",
+      "description": "Test that POST requests with /models/ path use Gemini bridge handler",
+      "acceptanceCriteria": [
+        "Test `TestCharacterization_GeminiV1Beta1_PostModels` passes",
+        "Test asserts: local Gemini handler called",
+        "Test asserts: proxy NOT called",
+        "Run `go test ./internal/api/modules/amp/... -run TestCharacterization_GeminiV1Beta1_PostModels` - exits with code 0"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-007",
+      "title": "Write Gemini v1beta1 mixed route gating test - GET always proxies",
+      "description": "Test that GET requests to Gemini v1beta1 always use proxy",
+      "acceptanceCriteria": [
+        "Test `TestCharacterization_GeminiV1Beta1_GetProxies` passes",
+        "Test asserts: proxy called",
+        "Test asserts: local handler NOT called",
+        "Run `go test ./internal/api/modules/amp/... -run TestCharacterization_GeminiV1Beta1_GetProxies` - exits with code 0"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-008",
+      "title": "Define ModelExtractor interface and implementation",
+      "description": "Extract model extraction logic into a pure interface for testability",
+      "acceptanceCriteria": [
+        "File `internal/routing/extractor.go` exists with ModelExtractor interface",
+        "Interface has method: Extract(body []byte, ginParams map[string]string) (string, error)",
+        "DefaultModelExtractor implements the interface",
+        "Run `go build ./internal/routing/...` - exits with code 0"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-009",
+      "title": "Write ModelExtractor unit tests",
+      "description": "Test all model extraction scenarios",
+      "acceptanceCriteria": [
+        "Test extracts model from JSON body `{\"model\":\"gpt-4.1\"}`",
+        "Test extracts model from Gemini action param `gemini-pro:generateContent`",
+        "Test extracts model from Gemini v1beta1 path `/publishers/google/models/gemini-3-pro:streamGenerateContent`",
+        "Test returns empty string when no model found",
+        "Run `go test ./internal/routing/... -run TestModelExtractor` - exits with code 0"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-010",
+      "title": "Define ModelRewriter interface and implementation",
+      "description": "Extract request/response model rewriting logic into a pure interface",
+      "acceptanceCriteria": [
+        "File `internal/routing/rewriter.go` exists with ModelRewriter interface",
+        "Interface has: RewriteRequestBody(body []byte, newModel string) ([]byte, error)",
+        "Interface has: WrapResponseWriter(w http.ResponseWriter, requestedModel, resolvedModel string) (http.ResponseWriter, func())",
+        "DefaultModelRewriter implements the interface",
+        "Run `go build ./internal/routing/...` - exits with code 0"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-011",
+      "title": "Write ModelRewriter unit tests",
+      "description": "Test request body and response model rewriting",
+      "acceptanceCriteria": [
+        "Test rewrites model field in JSON body",
+        "Test response writer intercepts and rewrites model in output",
+        "Test handles missing model field gracefully",
+        "Run `go test ./internal/routing/... -run TestModelRewriter` - exits with code 0"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-012",
+      "title": "Define RoutingRequest and RoutingDecision types",
+      "description": "Create the Router contract types for routing decisions",
+      "acceptanceCriteria": [
+        "File `internal/routing/types.go` exists",
+        "RoutingRequest type has: RequestedModel, PreferLocalProvider, ForceModelMapping fields",
+        "RoutingDecision type has: RouteType, ResolvedModel, ProviderName, FallbackModels, ShouldProxy fields",
+        "RouteType enum has: LOCAL_PROVIDER, MODEL_MAPPING, AMP_CREDITS, NO_PROVIDER",
+        "Run `go build ./internal/routing/...` - exits with code 0"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-013",
+      "title": "Extend Router.Resolve to return RoutingDecision",
+      "description": "Update Router to use the new contract types",
+      "acceptanceCriteria": [
+        "Router.Resolve accepts RoutingRequest and returns *RoutingDecision",
+        "Existing Router logic preserved",
+        "Run `go build ./internal/routing/...` - exits with code 0"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-014",
+      "title": "Write Router decision unit tests - default mode",
+      "description": "Test Router prefers local provider in default mode",
+      "acceptanceCriteria": [
+        "Test `TestRouter_DefaultMode_PrefersLocal` passes - local exists, returns LOCAL_PROVIDER",
+        "Test `TestRouter_DefaultMode_MapsWhenNoLocal` passes - no local, mapping exists, returns MODEL_MAPPING",
+        "Run `go test ./internal/routing/... -run TestRouter_DefaultMode` - exits with code 0"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-015",
+      "title": "Write Router decision unit tests - force mode",
+      "description": "Test Router applies mapping first in force mode",
+      "acceptanceCriteria": [
+        "Test `TestRouter_ForceMode_MapsEvenWithLocal` passes",
+        "Run `go test ./internal/routing/... -run TestRouter_ForceMode` - exits with code 0"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-016",
+      "title": "Write Router thinking suffix preservation test",
+      "description": "Test that thinking suffix is preserved across mapping",
+      "acceptanceCriteria": [
+        "Test `TestRouter_ThinkingSuffix_Preserved` passes",
+        "Input: `claude-3-5-sonnet(thinking:foo)` mapped to `claude-local`",
+        "Output: ResolvedModel = `claude-local(thinking:foo)`",
+        "Run `go test ./internal/routing/... -run TestRouter_ThinkingSuffix` - exits with code 0"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-017",
+      "title": "Implement ModelRoutingWrapper type",
+      "description": "Create the unified routing wrapper that replaces FallbackHandler logic",
+      "acceptanceCriteria": [
+        "File `internal/routing/wrapper.go` exists with ModelRoutingWrapper type",
+        "Wrapper has: Wrap(handler gin.HandlerFunc) gin.HandlerFunc method",
+        "Wrapper uses Router for decisions",
+        "Wrapper uses ModelExtractor for model extraction",
+        "Wrapper uses ModelRewriter for request/response rewriting",
+        "Run `go build ./internal/routing/...` - exits with code 0"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-018",
+      "title": "Implement wrapper LOCAL_PROVIDER path",
+      "description": "Implement the local provider execution path in wrapper",
+      "acceptanceCriteria": [
+        "Wrapper calls handler directly when RouteType is LOCAL_PROVIDER",
+        "Wrapper filters Anthropic-Beta header on local path",
+        "Wrapper does NOT set mapped_model context key",
+        "All LOCAL_PROVIDER characterization tests still pass"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-019",
+      "title": "Implement wrapper MODEL_MAPPING path",
+      "description": "Implement the model mapping execution path in wrapper",
+      "acceptanceCriteria": [
+        "Wrapper rewrites request body model when RouteType is MODEL_MAPPING",
+        "Wrapper sets `mapped_model` context key",
+        "Wrapper sets `fallback_models` context key if present",
+        "Wrapper wraps response writer to rewrite model back",
+        "All MODEL_MAPPING characterization tests still pass"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-020",
+      "title": "Implement wrapper AMP_CREDITS proxy path",
+      "description": "Implement the proxy fallback path in wrapper",
+      "acceptanceCriteria": [
+        "Wrapper calls proxy directly when ShouldProxy is true",
+        "Wrapper does NOT call local handler",
+        "Wrapper does NOT filter headers",
+        "Wrapper does NOT rewrite body",
+        "All AMP_CREDITS characterization tests still pass"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-021",
+      "title": "Apply wrapper to one OpenAI route for validation",
+      "description": "Replace FallbackHandler with ModelRoutingWrapper on chat/completions route",
+      "acceptanceCriteria": [
+        "POST /api/provider/:provider/v1/chat/completions uses ModelRoutingWrapper",
+        "All characterization tests pass",
+        "Run `go test ./internal/api/modules/amp/...` - exits with code 0"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-022",
+      "title": "Migrate remaining OpenAI routes",
+      "description": "Apply wrapper to all OpenAI-compatible routes",
+      "acceptanceCriteria": [
+        "POST /api/provider/:provider/completions uses wrapper",
+        "POST /api/provider/:provider/responses uses wrapper",
+        "POST /api/provider/:provider/v1/completions uses wrapper",
+        "POST /api/provider/:provider/v1/responses uses wrapper",
+        "Run `go test ./internal/api/modules/amp/...` - exits with code 0"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-023",
+      "title": "Migrate Claude routes",
+      "description": "Apply wrapper to all Claude-compatible routes",
+      "acceptanceCriteria": [
+        "POST /api/provider/:provider/v1/messages uses wrapper",
+        "POST /api/provider/:provider/v1/messages/count_tokens uses wrapper",
+        "Run `go test ./internal/api/modules/amp/...` - exits with code 0"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-024",
+      "title": "Migrate Gemini v1beta routes",
+      "description": "Apply wrapper to Gemini native routes",
+      "acceptanceCriteria": [
+        "POST /api/provider/:provider/v1beta/models/*action uses wrapper",
+        "Run `go test ./internal/api/modules/amp/...` - exits with code 0"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-025",
+      "title": "Migrate Gemini v1beta1 bridge route",
+      "description": "Apply wrapper to Gemini v1beta1 bridge with preserved gating logic",
+      "acceptanceCriteria": [
+        "POST /api/provider/google/v1beta1/*path with /models/ uses wrapper",
+        "Other methods/paths still use direct proxy",
+        "Gating characterization tests still pass",
+        "Run `go test ./internal/api/modules/amp/...` - exits with code 0"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-026",
+      "title": "Remove duplicate logic from FallbackHandler",
+      "description": "Clean up FallbackHandler to be a thin adapter or remove entirely",
+      "acceptanceCriteria": [
+        "FallbackHandler delegates to ModelRoutingWrapper OR is removed",
+        "No duplicate routing decision logic remains in FallbackHandler",
+        "Run `go build ./...` - exits with code 0",
+        "Run `go test ./...` - exits with code 0"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "T-027",
+      "title": "Final verification - full test suite",
+      "description": "Run complete test suite to verify no regressions",
+      "acceptanceCriteria": [
+        "Run `go build ./...` - exits with code 0",
+        "Run `go test ./...` - exits with code 0",
+        "All characterization tests pass",
+        "No dead code warnings"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

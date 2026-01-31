@@ -1,0 +1,9 @@
+{
+  "tool": "amp",
+  "reportsDir": "./reports",
+  "outputDir": "./scripts/compound",
+  "qualityChecks": ["go build ./...", "go test ./..."],
+  "maxIterations": 25,
+  "branchPrefix": "compound/",
+  "analyzeCommand": ""
+}

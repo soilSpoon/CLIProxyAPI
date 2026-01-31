@@ -1,0 +1,12 @@
+# CLIProxyAPI Compound Engineering - Cron Setup
+# Add these lines to your crontab: crontab -e
+
+# 22:30 - Daily Compound Review (extract learnings from today's threads)
+30 22 * * * /home/dh/dev/CLIProxyAPI/scripts/daily-compound-review.sh >> /home/dh/dev/CLIProxyAPI/logs/compound-review.log 2>&1
+
+# 23:00 - Auto-Compound (pick priority from reports, implement, create PR)
+0 23 * * * /home/dh/dev/CLIProxyAPI/scripts/compound/auto-compound.sh >> /home/dh/dev/CLIProxyAPI/logs/auto-compound.log 2>&1
+
+# Environment setup (add to top of crontab)
+# PATH=/home/dh/.local/bin:/home/dh/go/bin:/usr/local/bin:/usr/bin:/bin
+# ANTHROPIC_API_KEY=your-key-here
