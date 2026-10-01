@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	internalcache "github.com/router-for-me/CLIProxyAPI/v8/internal/cache"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 	"github.com/tidwall/gjson"
 )
@@ -1768,6 +1769,26 @@ func TestConvertClaudeRequestToOpenAI_NormalizesBooleanSubschemas(t *testing.T) 
 	}
 	if enum1 := params.Get("properties.enabled_flag.enum.1"); !enum1.Exists() || enum1.Type != gjson.False {
 		t.Fatalf("enabled_flag.enum.1 should remain boolean false, got: %s", enum1.Raw)
+	}
+}
+
+func TestConvertClaudeRequestToOpenAI_CachedFileBecomesFilePart(t *testing.T) {
+	const fileID = "file-openai-cached"
+	if !internalcache.PutClaudeFileContent(fileID, internalcache.ClaudeFileContent{Data: []byte("pdf-bytes"), MIMEType: "application/pdf"}) {
+		t.Fatal("put rejected the body")
+	}
+	t.Cleanup(func() { internalcache.DeleteClaudeFileContent(fileID) })
+
+	want := "data:application/pdf;base64," + base64.StdEncoding.EncodeToString([]byte("pdf-bytes"))
+	for _, block := range []string{
+		`{"type": "container_upload", "file_id": "` + fileID + `"}`,
+		`{"type": "document", "source": {"type": "file", "file_id": "` + fileID + `"}}`,
+	} {
+		input := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":[{"type":"text","text":"read"},` + block + `]}]}`)
+		output := string(ConvertClaudeRequestToOpenAI("gpt-5", input, false))
+		if !strings.Contains(output, `"type":"file"`) || !strings.Contains(output, want) {
+			t.Fatalf("%s: output = %s", block, output)
+		}
 	}
 }
 

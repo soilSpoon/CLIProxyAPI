@@ -1,11 +1,13 @@
 package claude
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
+	internalcache "github.com/router-for-me/CLIProxyAPI/v8/internal/cache"
 	internalsignature "github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
 	translatorcommon "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
 	"github.com/tidwall/gjson"
@@ -706,6 +708,33 @@ func TestConvertClaudeRequestToGemini_FunctionResponseJSONRef(t *testing.T) {
 	}
 	if !strings.Contains(result.String(), "#/components/schemas/ErrorModel") {
 		t.Fatalf("expected result to contain ref target, got %q", result.String())
+	}
+}
+
+func TestConvertClaudeRequestToGemini_CachedFileBecomesInlineData(t *testing.T) {
+	const fileID = "file-cached-inline"
+	if !internalcache.PutClaudeFileContent(fileID, internalcache.ClaudeFileContent{Data: []byte("pdf-bytes"), MIMEType: "application/pdf"}) {
+		t.Fatal("put rejected the body")
+	}
+	t.Cleanup(func() { internalcache.DeleteClaudeFileContent(fileID) })
+
+	want := base64.StdEncoding.EncodeToString([]byte("pdf-bytes"))
+	for _, block := range []string{
+		`{"type": "container_upload", "file_id": "` + fileID + `"}`,
+		`{"type": "document", "source": {"type": "file", "file_id": "` + fileID + `"}}`,
+	} {
+		inputJSON := []byte(`{"model": "gemini-3-flash-preview", "messages": [{"role": "user", "content": [` + block + `]}]}`)
+		output := ConvertClaudeRequestToGemini("gemini-3-flash-preview", inputJSON, false)
+		parts := gjson.GetBytes(output, "contents.0.parts").Array()
+		if len(parts) != 1 {
+			t.Fatalf("%s: parts = %d, output=%s", block, len(parts), output)
+		}
+		if got := parts[0].Get("inline_data.mime_type").String(); got != "application/pdf" {
+			t.Fatalf("%s: mime = %q", block, got)
+		}
+		if got := parts[0].Get("inline_data.data").String(); got != want {
+			t.Fatalf("%s: data = %q, want %q", block, got, want)
+		}
 	}
 }
 

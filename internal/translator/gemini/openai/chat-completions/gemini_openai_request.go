@@ -3,6 +3,7 @@
 package chat_completions
 
 import (
+	"encoding/base64"
 	"strings"
 
 	sigcompat "github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
@@ -180,6 +181,8 @@ func convertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 							fileData := item.Get("file.file_data").String()
 							if mimeType, data, ok := translatorcommon.NormalizeOpenAIFileData(filename, "", fileData); ok {
 								partItems = append(partItems, geminiInlineDataPart(mimeType, data, ""))
+							} else if data, mimeType, ok := translatorcommon.ClaudeStoredFileBytes(item.Get("file")); ok {
+								partItems = append(partItems, geminiInlineDataPart(mimeType, base64.StdEncoding.EncodeToString(data), ""))
 							} else {
 								log.Warn("Invalid file data or unknown file name extension in user message, skip")
 								droppedAttachment = "file"

@@ -8,6 +8,7 @@ package claude
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -838,8 +839,8 @@ func codexSchemaMissesRequired(schema gjson.Result) bool {
 	return false
 }
 
-// claudeDocumentDataURL turns an inline PDF into a Codex input_file URL. Anything
-// else, a file id included, is not representable and is reported by the caller.
+// claudeDocumentDataURL resolves an inline document or a stored upload into a Codex input_file URL.
+// A file id the process never stored stays unresolvable, so the part keeps its previous drop.
 func claudeDocumentDataURL(part gjson.Result) (string, bool) {
 	source := part.Get("source")
 	if source.Get("type").String() == "base64" {
@@ -856,5 +857,9 @@ func claudeDocumentDataURL(part gjson.Result) (string, bool) {
 		}
 		return fmt.Sprintf("data:%s;base64,%s", mediaType, data), true
 	}
-	return "", false
+	data, mimeType, ok := translatorcommon.ClaudeStoredFileBytes(part)
+	if !ok {
+		return "", false
+	}
+	return "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data), true
 }

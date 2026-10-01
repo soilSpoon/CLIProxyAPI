@@ -576,8 +576,8 @@ func convertClaudeContentPart(part gjson.Result) (string, bool) {
 	}
 }
 
-// convertClaudeFilePartToOpenAI emits an OpenAI file part for inline base64 bytes.
-// A file id carries none, so it stays unconverted and the caller reports it.
+// convertClaudeFilePartToOpenAI emits an OpenAI file part for bytes this process holds.
+// A file id resolves only from the upload cache; an unknown id stays unconverted.
 func convertClaudeFilePartToOpenAI(part gjson.Result) (string, bool) {
 	source := part.Get("source")
 	mimeType := source.Get("media_type").String()
@@ -589,6 +589,11 @@ func convertClaudeFilePartToOpenAI(part gjson.Result) (string, bool) {
 			return "", false
 		}
 		data = decoded
+	} else if stored, storedMime, ok := translatorcommon.ClaudeStoredFileBytes(part); ok {
+		data = stored
+		if mimeType == "" {
+			mimeType = storedMime
+		}
 	}
 
 	if len(data) == 0 {

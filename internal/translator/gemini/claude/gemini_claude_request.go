@@ -6,6 +6,7 @@
 package claude
 
 import (
+	"encoding/base64"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
@@ -197,7 +198,7 @@ func convertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool,
 						}
 
 					case "image", "document", "container_upload":
-						if part := claudeBase64InlineData(contentResult.Get("source")); part != nil {
+						if part := claudeInlineData(contentResult); part != nil {
 							partItems = append(partItems, part)
 						} else if partType := contentResult.Get("type").String(); partType != "image" {
 							droppedAttachment = partType
@@ -368,6 +369,26 @@ func convertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool,
 	result = common.AttachDefaultSafetySettings(result, "safetySettings")
 
 	return result, translatorcommon.ErrIfNothingLeft(droppedAttachment, int(gjson.GetBytes(result, "contents.#").Int()))
+}
+
+// claudeInlineData sends a file part as inline_data: the base64 it carries, or
+// the stored upload it names.
+func claudeInlineData(part gjson.Result) []byte {
+	if inline := claudeBase64InlineData(part.Get("source")); inline != nil {
+		return inline
+	}
+	return claudeCachedFileInlineData(part)
+}
+
+func claudeCachedFileInlineData(part gjson.Result) []byte {
+	data, mimeType, ok := translatorcommon.ClaudeStoredFileBytes(part)
+	if !ok {
+		return nil
+	}
+	out := []byte(`{"inline_data":{"mime_type":"","data":""}}`)
+	out, _ = sjson.SetBytes(out, "inline_data.mime_type", mimeType)
+	out, _ = sjson.SetBytes(out, "inline_data.data", base64.StdEncoding.EncodeToString(data))
+	return out
 }
 
 func claudeBase64InlineData(source gjson.Result) []byte {

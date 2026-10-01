@@ -2,20 +2,26 @@ package chat_completions
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"testing"
 
+	internalcache "github.com/router-for-me/CLIProxyAPI/v8/internal/cache"
 	translatorcommon "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 	"github.com/tidwall/gjson"
 )
 
 func TestConvertOpenAIRequestToClaude_FileParts(t *testing.T) {
+	const storedID = "file-openai-claude-stored"
+	internalcache.PutClaudeFileContent(storedID, internalcache.ClaudeFileContent{Data: []byte("pdf-bytes"), MIMEType: "application/pdf"})
+	t.Cleanup(func() { internalcache.DeleteClaudeFileContent(storedID) })
+
 	const (
 		text    = `{"type":"text","text":"read it"}`
 		audio   = `{"type":"input_audio","input_audio":{"format":"wav","data":"UklGRg=="}}`
 		missing = `{"type":"file","file":{"file_id":"file-absent"}}`
-		inline  = `{"type":"file","file":{"filename":"a.pdf","file_data":"data:application/pdf;base64,JVBERi0xLjQK"}}`
+		stored  = `{"type":"file","file":{"file_id":"` + storedID + `"}}`
 		system  = `{"role":"system","content":"be brief"},`
 	)
 	cases := []struct {
@@ -28,7 +34,7 @@ func TestConvertOpenAIRequestToClaude_FileParts(t *testing.T) {
 		{name: "a system prompt does not hide the empty turn", prefix: system, content: missing, wantErr: "file"},
 		{name: "text beside an unknown file id", content: text + "," + missing, wantTypes: `["text"]`},
 		{name: "text beside audio", content: text + "," + audio, wantTypes: `["text"]`},
-		{name: "inline file data becomes a document", content: inline, wantTypes: `["document"]`},
+		{name: "stored upload becomes a document", content: stored, wantTypes: `["document"]`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -48,6 +54,11 @@ func TestConvertOpenAIRequestToClaude_FileParts(t *testing.T) {
 			}
 			if types := gjson.GetBytes(got.Body, "messages.0.content.#.type").Raw; types != tc.wantTypes {
 				t.Fatalf("content types = %s, want %s. Output: %s", types, tc.wantTypes, got.Body)
+			}
+			if tc.wantTypes == `["document"]` {
+				if data := gjson.GetBytes(got.Body, "messages.0.content.0.source.data").String(); data != base64.StdEncoding.EncodeToString([]byte("pdf-bytes")) {
+					t.Fatalf("document data = %q", data)
+				}
 			}
 		})
 	}

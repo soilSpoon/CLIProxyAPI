@@ -6,6 +6,7 @@
 package chat_completions
 
 import (
+	"encoding/base64"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
@@ -490,16 +491,21 @@ func convertOpenAIContentPartToClaudePartRaw(part gjson.Result) []byte {
 			semicolonIdx := strings.Index(fileData, ";")
 			commaIdx := strings.Index(fileData, ",")
 			if semicolonIdx != -1 && commaIdx != -1 && commaIdx > semicolonIdx {
-				mediaType := strings.TrimPrefix(fileData[:semicolonIdx], "data:")
-				data := fileData[commaIdx+1:]
-				docPart := []byte(`{"type":"document","source":{"type":"base64","media_type":"","data":""}}`)
-				docPart, _ = sjson.SetBytes(docPart, "source.media_type", mediaType)
-				docPart, _ = sjson.SetBytes(docPart, "source.data", data)
-				return docPart
+				return claudeBase64Document(strings.TrimPrefix(fileData[:semicolonIdx], "data:"), fileData[commaIdx+1:])
 			}
+		}
+		if data, mediaType, ok := common.ClaudeStoredFileBytes(part.Get("file")); ok {
+			return claudeBase64Document(mediaType, base64.StdEncoding.EncodeToString(data))
 		}
 	}
 	return nil
+}
+
+func claudeBase64Document(mediaType, data string) []byte {
+	docPart := []byte(`{"type":"document","source":{"type":"base64","media_type":"","data":""}}`)
+	docPart, _ = sjson.SetBytes(docPart, "source.media_type", mediaType)
+	docPart, _ = sjson.SetBytes(docPart, "source.data", data)
+	return docPart
 }
 
 func convertOpenAIContentPartToClaudePart(part gjson.Result) string {

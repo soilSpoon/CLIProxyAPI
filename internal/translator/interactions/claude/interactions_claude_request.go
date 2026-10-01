@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"encoding/base64"
 	"strings"
 
 	translatorcommon "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
@@ -269,8 +270,21 @@ func claudeMediaPartToInteractions(part gjson.Result, partType string) ([]byte, 
 	if mimeType == "" {
 		mimeType = part.Get("mime_type").String()
 	}
+	if data == "" {
+		stored, storedMime, ok := translatorcommon.ClaudeStoredFileBytes(part)
+		if !ok {
+			return nil, false
+		}
+		data = base64.StdEncoding.EncodeToString(stored)
+		if mimeType == "" {
+			mimeType = storedMime
+		}
+	}
 	if mimeType == "" || data == "" {
 		return nil, false
+	}
+	if partType == "container_upload" {
+		partType = "document"
 	}
 	out := []byte(`{"type":"","mime_type":"","data":""}`)
 	out, _ = sjson.SetBytes(out, "type", partType)
