@@ -1,11 +1,13 @@
 package claude
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	internalsignature "github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
+	translatorcommon "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
 	"github.com/tidwall/gjson"
 )
 
@@ -704,5 +706,78 @@ func TestConvertClaudeRequestToGemini_FunctionResponseJSONRef(t *testing.T) {
 	}
 	if !strings.Contains(result.String(), "#/components/schemas/ErrorModel") {
 		t.Fatalf("expected result to contain ref target, got %q", result.String())
+	}
+}
+
+func TestConvertClaudeRequestToGemini_ContainerUploadKeepsOtherText(t *testing.T) {
+	inputJSON := []byte(`{
+		"model": "gemini-3-flash-preview",
+		"messages": [{"role": "user", "content": [
+			{"type": "text", "text": "keep me"},
+			{"type": "container_upload", "file_id": "file-example"}
+		]}]
+	}`)
+	output := ConvertClaudeRequestToGemini("gemini-3-flash-preview", inputJSON, false)
+	parts := gjson.GetBytes(output, "contents.0.parts").Array()
+	if len(parts) != 1 || parts[0].Get("text").String() != "keep me" {
+		t.Fatalf("text was dropped with the file: %s", output)
+	}
+}
+
+func TestConvertClaudeRequestToGemini_UnsendableFileNamesTheDroppedPart(t *testing.T) {
+	for partType, block := range map[string]string{
+		"container_upload": `{"type": "container_upload", "file_id": "file-example"}`,
+		"document":         `{"type": "document", "source": {"type": "file", "file_id": "file-example"}}`,
+	} {
+		inputJSON := []byte(`{
+			"model": "gemini-3-flash-preview",
+			"messages": [{"role": "user", "content": [` + block + `]}]
+		}`)
+		output, err := ConvertClaudeRequestToGeminiWithCompatReturningError("gemini-3-flash-preview", inputJSON, false)
+		if err == nil {
+			t.Fatalf("%s: expected unsupported part error, output=%s", partType, output)
+		}
+		if got, want := err.Error(), "unsupported content part: "+partType; got != want {
+			t.Fatalf("error = %q, want %q", got, want)
+		}
+		var unsupported *translatorcommon.UnsupportedPartError
+		if !errors.As(err, &unsupported) || unsupported.StatusCode() != 400 || !unsupported.IsRequestScoped() {
+			t.Fatalf("%s: error = %#v", partType, err)
+		}
+	}
+}
+
+func TestConvertClaudeRequestToGemini_DocumentBase64SurvivesAsInlineData(t *testing.T) {
+	const pdf = "JVBERi0xLjQK"
+	inputJSON := []byte(`{
+		"model": "gemini-3-flash-preview",
+		"messages": [{"role": "user", "content": [{"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": "` + pdf + `"}}]}]
+	}`)
+	output := ConvertClaudeRequestToGemini("gemini-3-flash-preview", inputJSON, false)
+	parts := gjson.GetBytes(output, "contents.0.parts").Array()
+	if len(parts) != 1 {
+		t.Fatalf("Expected 1 part, got %d. output=%s", len(parts), output)
+	}
+	if got := parts[0].Get("inline_data.mime_type").String(); got != "application/pdf" {
+		t.Fatalf("mime = %q", got)
+	}
+	if got := parts[0].Get("inline_data.data").String(); got != pdf {
+		t.Fatalf("data = %q", got)
+	}
+}
+
+func TestConvertClaudeRequestToGemini_ImageURLAndRedactedThinkingStaySkipped(t *testing.T) {
+	inputJSON := []byte(`{
+		"model": "gemini-3-flash-preview",
+		"messages": [{"role": "user", "content": [
+			{"type": "text", "text": "keep me"},
+			{"type": "image", "source": {"type": "url", "url": "https://example.test/a.png"}},
+			{"type": "redacted_thinking", "data": "abc"}
+		]}]
+	}`)
+	output := ConvertClaudeRequestToGemini("gemini-3-flash-preview", inputJSON, false)
+	parts := gjson.GetBytes(output, "contents.0.parts").Array()
+	if len(parts) != 1 || parts[0].Get("text").String() != "keep me" {
+		t.Fatalf("old skip paths changed the turn: %s", output)
 	}
 }
